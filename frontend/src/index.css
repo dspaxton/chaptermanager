@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-hog-black-950 text-white antialiased;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-hog-black-950 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-hog-orange-500 text-white hover:bg-hog-orange-600 focus:ring-hog-orange-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-hog-black-800 text-white hover:bg-hog-black-700 focus:ring-hog-black-500;
+  }
+
+  .btn-ghost {
+    @apply btn text-hog-black-300 hover:text-white hover:bg-hog-black-800;
+  }
+
+  .card {
+    @apply bg-hog-black-900 border border-hog-black-800 rounded-xl p-6;
+  }
+
+  .input {
+    @apply w-full px-4 py-2 bg-hog-black-800 border border-hog-black-700 rounded-lg text-white placeholder-hog-black-400 focus:outline-none focus:ring-2 focus:ring-hog-orange-500 focus:border-transparent;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-hog-black-300 mb-1;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-orange {
+    @apply badge bg-hog-orange-500/20 text-hog-orange-400;
+  }
+
+  .badge-green {
+    @apply badge bg-green-500/20 text-green-400;
+  }
+
+  .badge-blue {
+    @apply badge bg-blue-500/20 text-blue-400;
+  }
+
+  .badge-gray {
+    @apply badge bg-hog-black-700 text-hog-black-300;
+  }
+}
