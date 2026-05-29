@@ -2,10 +2,11 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { Bike, Calendar, MapPin, Users, Plus, Filter } from 'lucide-react';
+import { Bike, Calendar, MapPin, Users, Plus, Filter, Sparkles } from 'lucide-react';
 import { ridesApi } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
 import { clsx } from 'clsx';
+import RideSuggestions from '../components/RideSuggestions';
 
 export default function Rides() {
   const { user } = useAuthStore();
@@ -15,6 +16,7 @@ export default function Rides() {
   const [statusFilter, setStatusFilter] = useState('published');
   const [typeFilter, setTypeFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Generate year options (current year and previous years with rides)
   const yearOptions = useMemo(() => {
@@ -73,12 +75,25 @@ export default function Rides() {
           </p>
         </div>
         {canCreate && (
-          <Link to="/rides/new" className="btn-primary">
-            <Plus className="w-4 h-4 mr-2" />
-            New Ride
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSuggestions((v) => !v)}
+              className="btn-secondary"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              Suggest a Ride
+            </button>
+            <Link to="/rides/new" className="btn-primary">
+              <Plus className="w-4 h-4 mr-2" />
+              New Ride
+            </Link>
+          </div>
         )}
       </div>
+
+      {canCreate && showSuggestions && (
+        <RideSuggestions onClose={() => setShowSuggestions(false)} />
+      )}
 
       {/* Filters */}
       <div className="card">
