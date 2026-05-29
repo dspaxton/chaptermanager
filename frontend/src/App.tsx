@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard';
 import Members from './pages/Members';
 import MemberProfile from './pages/MemberProfile';
 import Rides from './pages/Rides';
+import RideCreate from './pages/RideCreate';
+import RideEdit from './pages/RideEdit';
 import RideDetail from './pages/RideDetail';
 import Meetings from './pages/Meetings';
 import MeetingDetail from './pages/MeetingDetail';
@@ -46,6 +48,8 @@ function App() {
         <Route path="members" element={<Members />} />
         <Route path="members/:id" element={<MemberProfile />} />
         <Route path="rides" element={<Rides />} />
+        <Route path="rides/new" element={<RideCreate />} />
+        <Route path="rides/:id/edit" element={<RideEdit />} />
         <Route path="rides/:id" element={<RideDetail />} />
         <Route path="meetings" element={<Meetings />} />
         <Route path="meetings/:id" element={<MeetingDetail />} />

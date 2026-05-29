@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { User, Lock, Bike, Bell } from 'lucide-react';
+import { User, Lock, Bike, Bell, Plus, Trash2, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { membersApi, authApi } from '../lib/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,13 +25,24 @@ const passwordSchema = z.object({
   path: ['confirmPassword'],
 });
 
+const bikeSchema = z.object({
+  year: z.coerce.number().min(1900).max(new Date().getFullYear() + 1),
+  make: z.string().min(1, 'Make is required'),
+  model: z.string().optional(),
+  color: z.string().optional(),
+  nickname: z.string().optional(),
+  isPrimary: z.boolean().default(false),
+});
+
 type ProfileForm = z.infer<typeof profileSchema>;
 type PasswordForm = z.infer<typeof passwordSchema>;
+type BikeForm = z.infer<typeof bikeSchema>;
 
 export default function Settings() {
   const { user, updateUser } = useAuthStore();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'bikes' | 'notifications'>('profile');
+  const [showBikeForm, setShowBikeForm] = useState(false);
 
   const { data: memberData } = useQuery({
     queryKey: ['member', user?.member?.id],
@@ -54,6 +65,18 @@ export default function Settings() {
 
   const passwordForm = useForm<PasswordForm>({
     resolver: zodResolver(passwordSchema),
+  });
+
+  const bikeForm = useForm<BikeForm>({
+    resolver: zodResolver(bikeSchema),
+    defaultValues: {
+      year: new Date().getFullYear(),
+      make: 'Harley-Davidson',
+      model: '',
+      color: '',
+      nickname: '',
+      isPrimary: false,
+    },
   });
 
   const updateProfileMutation = useMutation({
@@ -83,6 +106,30 @@ export default function Settings() {
     },
     onError: (error: { response?: { data?: { error?: string } } }) => {
       toast.error(error.response?.data?.error || 'Failed to change password');
+    },
+  });
+
+  const addBikeMutation = useMutation({
+    mutationFn: (data: BikeForm) => membersApi.addBike(user!.member!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member', user?.member?.id] });
+      bikeForm.reset();
+      setShowBikeForm(false);
+      toast.success('Bike added!');
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to add bike');
+    },
+  });
+
+  const deleteBikeMutation = useMutation({
+    mutationFn: (bikeId: string) => membersApi.deleteBike(user!.member!.id, bikeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member', user?.member?.id] });
+      toast.success('Bike removed');
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to remove bike');
     },
   });
 
@@ -243,7 +290,127 @@ export default function Settings() {
 
           {activeTab === 'bikes' && (
             <div>
-              <h2 className="text-lg font-display font-semibold mb-6">My Bikes</h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-display font-semibold">My Bikes</h2>
+                {!showBikeForm && (
+                  <button
+                    className="btn-primary flex items-center gap-2"
+                    onClick={() => setShowBikeForm(true)}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Bike
+                  </button>
+                )}
+              </div>
+
+              {showBikeForm && (
+                <form
+                  onSubmit={bikeForm.handleSubmit((data) => addBikeMutation.mutate(data))}
+                  className="mb-6 p-4 rounded-lg bg-hog-black-800 border border-hog-black-700"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-medium">Add New Bike</h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowBikeForm(false);
+                        bikeForm.reset();
+                      }}
+                      className="text-hog-black-400 hover:text-white"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Year *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        placeholder="2024"
+                        {...bikeForm.register('year')}
+                      />
+                      {bikeForm.formState.errors.year && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {bikeForm.formState.errors.year.message}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">Make *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Harley-Davidson"
+                        {...bikeForm.register('make')}
+                      />
+                      {bikeForm.formState.errors.make && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {bikeForm.formState.errors.make.message}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">Model</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Street Glide"
+                        {...bikeForm.register('model')}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Color</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Vivid Black"
+                        {...bikeForm.register('color')}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Nickname</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Black Beauty"
+                        {...bikeForm.register('nickname')}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 pt-6">
+                      <input
+                        type="checkbox"
+                        id="isPrimary"
+                        className="w-4 h-4 rounded border-hog-black-600 text-hog-orange-500 focus:ring-hog-orange-500"
+                        {...bikeForm.register('isPrimary')}
+                      />
+                      <label htmlFor="isPrimary" className="text-sm">
+                        Primary bike
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3 mt-4">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        setShowBikeForm(false);
+                        bikeForm.reset();
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={addBikeMutation.isPending}
+                    >
+                      {addBikeMutation.isPending ? 'Adding...' : 'Add Bike'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
               {member?.bikes?.length > 0 ? (
                 <div className="space-y-4">
                   {member.bikes.map((bike: {
@@ -270,17 +437,35 @@ export default function Settings() {
                           <p className="text-sm text-hog-black-500">{bike.color}</p>
                         )}
                       </div>
-                      {bike.is_primary && (
-                        <span className="badge-orange">Primary</span>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {bike.is_primary && (
+                          <span className="badge-orange">Primary</span>
+                        )}
+                        <button
+                          onClick={() => {
+                            if (confirm('Are you sure you want to remove this bike?')) {
+                              deleteBikeMutation.mutate(bike.id);
+                            }
+                          }}
+                          className="text-hog-black-400 hover:text-red-500 transition-colors"
+                          title="Remove bike"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : !showBikeForm && (
                 <div className="text-center py-8">
                   <Bike className="w-12 h-12 text-hog-black-600 mx-auto mb-4" />
                   <p className="text-hog-black-400 mb-4">No bikes added yet</p>
-                  <button className="btn-primary">Add Your First Bike</button>
+                  <button
+                    className="btn-primary"
+                    onClick={() => setShowBikeForm(true)}
+                  >
+                    Add Your First Bike
+                  </button>
                 </div>
               )}
             </div>

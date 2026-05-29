@@ -71,7 +71,7 @@ export default function Layout() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto min-h-0">
             {navigation.map((item) => (
               <NavLink
                 key={item.name}
@@ -92,8 +92,8 @@ export default function Layout() {
             ))}
           </nav>
 
-          {/* User section */}
-          <div className="p-4 border-t border-hog-black-800">
+          {/* Settings - pinned to bottom */}
+          <div className="flex-shrink-0 p-4 border-t border-hog-black-800">
             <NavLink
               to="/settings"
               className={({ isActive }) =>

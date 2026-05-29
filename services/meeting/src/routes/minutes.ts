@@ -4,7 +4,70 @@ import { pool } from '../index';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
+// Type for AI summarize response
+interface AISummarizeResponse {
+  success: boolean;
+  data: {
+    summary: string;
+    actionItems?: Array<{ title: string; description: string }>;
+    keyDecisions?: string[];
+  };
+}
+
 const router = Router();
+
+// Get all published minutes (for browsing) - MUST be before /:meetingId routes
+router.get('/all/minutes', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { page = '1', limit = '20' } = req.query;
+    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+    let query = `
+      SELECT m.id, m.meeting_id, m.summary, m.ai_summary, m.approved_at, m.created_at,
+             mtg.title as meeting_title, mtg.meeting_date, mtg.meeting_type
+      FROM minutes m
+      JOIN meetings mtg ON mtg.id = m.meeting_id
+      WHERE m.is_published = true
+    `;
+
+    // Non-officers can only see chapter meeting minutes
+    if (!['admin', 'director', 'officer'].includes(req.user!.role)) {
+      query += ` AND mtg.meeting_type = 'chapter'`;
+    }
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM (${query}) as subquery`
+    );
+    const total = parseInt(countResult.rows[0].count);
+
+    query += ` ORDER BY mtg.meeting_date DESC LIMIT $1 OFFSET $2`;
+
+    const result = await pool.query(query, [limit, offset]);
+
+    res.json({
+      success: true,
+      data: result.rows.map(row => ({
+        id: row.id,
+        meetingId: row.meeting_id,
+        meetingTitle: row.meeting_title,
+        meetingDate: row.meeting_date,
+        meetingType: row.meeting_type,
+        summary: row.summary,
+        aiSummary: row.ai_summary,
+        approvedAt: row.approved_at,
+        createdAt: row.created_at,
+      })),
+      pagination: {
+        page: parseInt(page as string),
+        limit: parseInt(limit as string),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit as string)),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Get minutes for a meeting
 router.get('/:meetingId/minutes', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -77,59 +140,6 @@ router.get('/:meetingId/minutes', authenticate, async (req: AuthRequest, res: Re
         isPublished: minutes.is_published,
         createdAt: minutes.created_at,
         updatedAt: minutes.updated_at,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get all published minutes (for browsing)
-router.get('/all/minutes', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { page = '1', limit = '20' } = req.query;
-    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-    let query = `
-      SELECT m.id, m.meeting_id, m.summary, m.ai_summary, m.approved_at, m.created_at,
-             mtg.title as meeting_title, mtg.meeting_date, mtg.meeting_type
-      FROM minutes m
-      JOIN meetings mtg ON mtg.id = m.meeting_id
-      WHERE m.is_published = true
-    `;
-
-    // Non-officers can only see chapter meeting minutes
-    if (!['admin', 'director', 'officer'].includes(req.user!.role)) {
-      query += ` AND mtg.meeting_type = 'chapter'`;
-    }
-
-    const countResult = await pool.query(
-      `SELECT COUNT(*) FROM (${query}) as subquery`
-    );
-    const total = parseInt(countResult.rows[0].count);
-
-    query += ` ORDER BY mtg.meeting_date DESC LIMIT $1 OFFSET $2`;
-
-    const result = await pool.query(query, [limit, offset]);
-
-    res.json({
-      success: true,
-      data: result.rows.map(row => ({
-        id: row.id,
-        meetingId: row.meeting_id,
-        meetingTitle: row.meeting_title,
-        meetingDate: row.meeting_date,
-        meetingType: row.meeting_type,
-        summary: row.summary,
-        aiSummary: row.ai_summary,
-        approvedAt: row.approved_at,
-        createdAt: row.created_at,
-      })),
-      pagination: {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit as string)),
       },
     });
   } catch (error) {
@@ -233,7 +243,7 @@ router.post(
           throw new Error('AI service error');
         }
 
-        const aiResult = await aiResponse.json();
+        const aiResult = await aiResponse.json() as AISummarizeResponse;
 
         // Update minutes with AI summary
         await pool.query(

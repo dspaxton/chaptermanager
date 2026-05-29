@@ -3,7 +3,7 @@
 // =============================================================================
 
 // User roles
-export type UserRole = 'admin' | 'director' | 'officer' | 'road_captain' | 'member' | 'prospect';
+export type UserRole = 'admin' | 'director' | 'officer' | 'head_road_captain' | 'road_captain' | 'secretary' | 'member' | 'prospect';
 
 // Member status
 export type MemberStatus = 'active' | 'inactive' | 'prospect' | 'suspended' | 'honorary';

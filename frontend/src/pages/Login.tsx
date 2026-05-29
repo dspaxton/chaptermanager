@@ -128,7 +128,7 @@ export default function Login() {
 
         {/* Demo credentials */}
         <p className="mt-4 text-center text-xs text-hog-black-500">
-          Demo: admin@chapter.local / ChangeMe123!
+          Demo: admin@chapter.local / Password123
         </p>
       </div>
     </div>

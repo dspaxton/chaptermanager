@@ -26,11 +26,11 @@ const loginSchema = z.object({
 function generateTokens(payload: { userId: string; email: string; role: string; memberId?: string }) {
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET!, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  });
+  } as jwt.SignOptions);
 
   const refreshToken = jwt.sign({ userId: payload.userId }, process.env.JWT_SECRET!, {
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
-  });
+  } as jwt.SignOptions);
 
   return { accessToken, refreshToken };
 }
@@ -81,7 +81,18 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
     res.status(201).json({
       success: true,
       data: {
-        user: { id: userId, email, role: 'member', memberId },
+        user: {
+          id: userId,
+          email,
+          role: 'member',
+          member: {
+            id: memberId,
+            firstName,
+            lastName,
+            nickname: null,
+            photoUrl: null,
+          },
+        },
         ...tokens,
       },
     });
@@ -98,9 +109,11 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
   try {
     const { email, password } = loginSchema.parse(req.body);
 
-    // Get user
+    // Get user with full member data
     const result = await pool.query(
-      `SELECT u.id, u.email, u.password_hash, u.role, u.is_active, m.id as member_id
+      `SELECT u.id, u.email, u.password_hash, u.role, u.is_active,
+              m.id as member_id, m.first_name, m.last_name, m.nickname,
+              m.photo_url, m.status as member_status
        FROM users u
        LEFT JOIN members m ON m.user_id = u.id
        WHERE u.email = $1`,
@@ -155,7 +168,15 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
           id: user.id,
           email: user.email,
           role: user.role,
-          memberId: user.member_id,
+          member: user.member_id
+            ? {
+                id: user.member_id,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                nickname: user.nickname,
+                photoUrl: user.photo_url,
+              }
+            : null,
         },
         ...tokens,
       },

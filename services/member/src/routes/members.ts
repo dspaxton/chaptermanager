@@ -34,7 +34,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     let query = `
-      SELECT m.id, m.first_name, m.last_name, m.nickname, m.photo_url,
+      SELECT DISTINCT ON (m.id) m.id, m.first_name, m.last_name, m.nickname, m.photo_url,
              m.status, m.total_mileage, m.total_rides,
              mp.position_title as current_position
       FROM members m
@@ -60,18 +60,18 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
       paramIndex++;
     }
 
-    // Get total count
-    const countResult = await pool.query(
-      `SELECT COUNT(*) FROM (${query}) as subquery`,
-      params
-    );
+    // Get total count (count distinct members, not joined rows)
+    const countQuery = query.replace('SELECT DISTINCT ON (m.id) m.id, m.first_name, m.last_name, m.nickname, m.photo_url,\n             m.status, m.total_mileage, m.total_rides,\n             mp.position_title as current_position', 'SELECT COUNT(DISTINCT m.id)');
+    const countResult = await pool.query(countQuery, params);
     const total = parseInt(countResult.rows[0].count);
 
-    // Add pagination
-    query += ` ORDER BY m.last_name, m.first_name LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
+    // Add ORDER BY (DISTINCT ON requires ORDER BY to start with the same columns)
+    // Then wrap in subquery for final ordering and pagination
+    query += ` ORDER BY m.id, mp.start_date DESC NULLS LAST`;
+    const paginatedQuery = `SELECT * FROM (${query}) as members ORDER BY last_name, first_name LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
     params.push(limit, offset);
 
-    const result = await pool.query(query, params);
+    const result = await pool.query(paginatedQuery, params);
 
     res.json({
       success: true,
@@ -180,6 +180,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
       responseData.emergencyContactPhone = member.emergency_contact_phone;
       responseData.emergencyContactRelation = member.emergency_contact_relation;
       responseData.isPublicDirectory = member.is_public_directory;
+      responseData.userRole = member.role; // User's system role
     }
 
     res.json({ success: true, data: responseData });
@@ -276,6 +277,51 @@ router.patch(
       logger.info(`Member ${id} status changed to ${status} by ${req.user!.userId}`);
 
       res.json({ success: true, message: 'Status updated successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Update user role (admin only)
+router.patch(
+  '/:id/role',
+  authenticate,
+  requireRole('admin', 'director'),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { role } = req.body;
+
+      const validRoles = ['admin', 'director', 'officer', 'head_road_captain', 'road_captain', 'secretary', 'member', 'prospect'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ success: false, error: 'Invalid role' });
+      }
+
+      // Get the user_id from the member record
+      const memberResult = await pool.query('SELECT user_id FROM members WHERE id = $1', [id]);
+      if (memberResult.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Member not found' });
+      }
+
+      const userId = memberResult.rows[0].user_id;
+      if (!userId) {
+        return res.status(400).json({ success: false, error: 'Member has no associated user account' });
+      }
+
+      // Prevent demoting yourself if you're the only admin
+      if (req.user!.memberId === id && role !== 'admin') {
+        const adminCount = await pool.query("SELECT COUNT(*) FROM users WHERE role = 'admin'");
+        if (parseInt(adminCount.rows[0].count) <= 1) {
+          return res.status(400).json({ success: false, error: 'Cannot demote the only admin' });
+        }
+      }
+
+      await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+
+      logger.info(`User ${userId} role changed to ${role} by ${req.user!.userId}`);
+
+      res.json({ success: true, message: 'Role updated successfully' });
     } catch (error) {
       next(error);
     }

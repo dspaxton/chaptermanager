@@ -25,7 +25,7 @@ const createRideSchema = z.object({
   estimatedDuration: z.number().optional(),
   difficultyLevel: z.number().min(1).max(5).default(1),
   routeDescription: z.string().optional(),
-  routeMapUrl: z.string().url().optional(),
+  routeMapUrl: z.string().url().optional().or(z.literal('')).transform(v => v === '' ? undefined : v),
   // RSVP is off by default - only enabled for special events
   rsvpRequired: z.boolean().default(false),
   rsvpDeadline: z.string().optional(),
@@ -358,6 +358,17 @@ router.put(
       const { id } = req.params;
       const updates = updateRideSchema.parse(req.body);
 
+      // Helper to convert empty strings to null for database
+      const nullIfEmpty = (val: unknown) => (val === '' || val === undefined ? null : val);
+
+      // Fields that need empty string -> null conversion (dates, times, optional fields)
+      const nullableFields = new Set([
+        'startTime', 'endDate', 'endTime', 'meetupLocation', 'meetupAddress',
+        'destination', 'destinationAddress', 'estimatedDistance', 'estimatedDuration',
+        'routeDescription', 'routeMapUrl', 'rsvpDeadline', 'maxParticipants',
+        'leadRoadCaptainId', 'sweepRoadCaptainId'
+      ]);
+
       // Build dynamic update query
       const fields: string[] = [];
       const values: unknown[] = [];
@@ -390,7 +401,8 @@ router.put(
       for (const [key, dbField] of Object.entries(fieldMap)) {
         if (key in updates) {
           fields.push(`${dbField} = $${paramIndex++}`);
-          values.push(updates[key as keyof typeof updates]);
+          const value = updates[key as keyof typeof updates];
+          values.push(nullableFields.has(key) ? nullIfEmpty(value) : value);
         }
       }
 
@@ -425,7 +437,7 @@ router.patch(
       const { id } = req.params;
       const { status } = req.body;
 
-      const validStatuses = ['draft', 'published', 'in_progress', 'completed', 'cancelled'];
+      const validStatuses = ['draft', 'published', 'in_progress', 'completed', 'cancelled', 'postponed'];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({ success: false, error: 'Invalid status' });
       }
@@ -515,7 +527,7 @@ router.post('/:id/rsvp', authenticate, async (req: AuthRequest, res: Response, n
 router.post(
   '/:id/attendance',
   authenticate,
-  requireRole('admin', 'director', 'officer', 'road_captain'),
+  requireRole('admin', 'director', 'officer', 'head_road_captain', 'road_captain'),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -641,6 +653,113 @@ router.post(
       }
 
       res.json({ success: true, message: 'Waypoints saved' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Duplicate a ride (creates a copy as draft)
+router.post(
+  '/:id/duplicate',
+  authenticate,
+  requireRole('admin', 'director', 'officer', 'road_captain'),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+
+      // Get the original ride
+      const result = await pool.query(
+        `SELECT * FROM rides WHERE id = $1`,
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Ride not found' });
+      }
+
+      const original = result.rows[0];
+
+      // Helper to handle empty/null values
+      const nullIfEmpty = (val: unknown) => (val === '' || val === undefined ? null : val);
+
+      // Create a copy as draft
+      const newRideId = uuidv4();
+      await pool.query(
+        `INSERT INTO rides (
+          id, title, description, ride_type, status,
+          start_date, start_time, end_date, end_time,
+          meetup_location, meetup_address, meetup_lat, meetup_lng,
+          destination, destination_address, destination_lat, destination_lng,
+          estimated_distance, estimated_duration, difficulty_level,
+          route_description, route_map_url,
+          rsvp_required, rsvp_deadline, max_participants,
+          lead_road_captain_id, sweep_road_captain_id,
+          created_by
+        ) VALUES (
+          $1, $2, $3, $4, 'draft',
+          $5, $6, $7, $8,
+          $9, $10, $11, $12,
+          $13, $14, $15, $16,
+          $17, $18, $19,
+          $20, $21,
+          $22, $23, $24,
+          $25, $26,
+          $27
+        )`,
+        [
+          newRideId,
+          original.title + ' (Copy)',
+          nullIfEmpty(original.description),
+          original.ride_type,
+          original.start_date,
+          nullIfEmpty(original.start_time),
+          nullIfEmpty(original.end_date),
+          nullIfEmpty(original.end_time),
+          nullIfEmpty(original.meetup_location),
+          nullIfEmpty(original.meetup_address),
+          nullIfEmpty(original.meetup_lat),
+          nullIfEmpty(original.meetup_lng),
+          nullIfEmpty(original.destination),
+          nullIfEmpty(original.destination_address),
+          nullIfEmpty(original.destination_lat),
+          nullIfEmpty(original.destination_lng),
+          nullIfEmpty(original.estimated_distance),
+          nullIfEmpty(original.estimated_duration),
+          original.difficulty_level,
+          nullIfEmpty(original.route_description),
+          nullIfEmpty(original.route_map_url),
+          original.rsvp_required,
+          null, // Reset RSVP deadline
+          nullIfEmpty(original.max_participants),
+          nullIfEmpty(original.lead_road_captain_id),
+          nullIfEmpty(original.sweep_road_captain_id),
+          req.user!.userId,
+        ]
+      );
+
+      // Copy waypoints if any
+      const waypoints = await pool.query(
+        `SELECT sequence_order, name, address, lat, lng, stop_type, notes FROM ride_waypoints WHERE ride_id = $1`,
+        [id]
+      );
+      for (const wp of waypoints.rows) {
+        await pool.query(
+          `INSERT INTO ride_waypoints (id, ride_id, sequence_order, name, address, lat, lng, stop_type, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [uuidv4(), newRideId, wp.sequence_order, wp.name, wp.address, wp.lat, wp.lng, wp.stop_type, wp.notes]
+        );
+      }
+
+      logger.info(`Ride ${id} duplicated to ${newRideId}`);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: newRideId,
+        },
+        message: 'Ride duplicated as draft.',
+      });
     } catch (error) {
       next(error);
     }

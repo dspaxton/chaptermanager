@@ -90,6 +90,12 @@ export const membersApi = {
   updateStatus: (id: string, status: string) =>
     api.patch(`/members/${id}/status`, { status }),
 
+  updateRole: (id: string, role: string) =>
+    api.patch(`/members/${id}/role`, { role }),
+
+  addPosition: (id: string, positionTitle: string, startDate: string) =>
+    api.post(`/members/${id}/positions`, { positionTitle, startDate }),
+
   getBikes: (memberId: string) => api.get(`/members/${memberId}/bikes`),
 
   addBike: (memberId: string, data: Record<string, unknown>) =>
@@ -136,6 +142,8 @@ export const ridesApi = {
 
   saveWaypoints: (id: string, waypoints: Array<{ name: string; address?: string; lat?: number; lng?: number; stopType?: string; notes?: string }>) =>
     api.post(`/rides/${id}/waypoints`, { waypoints }),
+
+  duplicate: (id: string) => api.post(`/rides/${id}/duplicate`),
 };
 
 // Meetings API

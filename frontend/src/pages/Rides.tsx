@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
@@ -10,13 +10,38 @@ import { clsx } from 'clsx';
 export default function Rides() {
   const { user } = useAuthStore();
   const canCreate = ['admin', 'director', 'officer', 'road_captain'].includes(user?.role || '');
+  const currentYear = new Date().getFullYear();
+  const [yearFilter, setYearFilter] = useState<number | 'all'>(currentYear);
   const [statusFilter, setStatusFilter] = useState('published');
   const [typeFilter, setTypeFilter] = useState('');
   const [page, setPage] = useState(1);
 
+  // Generate year options (current year and previous years with rides)
+  const yearOptions = useMemo(() => {
+    const years: number[] = [];
+    // Show current year plus 5 previous years
+    for (let y = currentYear; y >= currentYear - 5; y--) {
+      years.push(y);
+    }
+    return years;
+  }, [currentYear]);
+
+  // Calculate date range based on year filter
+  const dateRange = useMemo(() => {
+    if (yearFilter === 'all') {
+      return { startDate: undefined, endDate: undefined };
+    }
+    return {
+      startDate: `${yearFilter}-01-01`,
+      endDate: `${yearFilter}-12-31`,
+    };
+  }, [yearFilter]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['rides', statusFilter, typeFilter, page],
+    queryKey: ['rides', yearFilter, statusFilter, typeFilter, page],
     queryFn: () => ridesApi.getAll({
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
       status: statusFilter || undefined,
       rideType: typeFilter || undefined,
       page,
@@ -33,6 +58,7 @@ export default function Rides() {
       case 'draft': return 'badge-gray';
       case 'completed': return 'badge-blue';
       case 'cancelled': return 'bg-red-500/20 text-red-400';
+      case 'postponed': return 'bg-yellow-500/20 text-yellow-400';
       default: return 'badge-gray';
     }
   };
@@ -42,7 +68,9 @@ export default function Rides() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-display font-bold">Rides</h1>
-          <p className="text-hog-black-400 mt-1">Upcoming and past chapter rides</p>
+          <p className="text-hog-black-400 mt-1">
+            {yearFilter === 'all' ? 'All chapter rides' : `${yearFilter} chapter rides`}
+          </p>
         </div>
         {canCreate && (
           <Link to="/rides/new" className="btn-primary">
@@ -54,24 +82,39 @@ export default function Rides() {
 
       {/* Filters */}
       <div className="card">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-hog-black-400" />
             <select
               className="input w-auto"
-              value={statusFilter}
+              value={yearFilter}
               onChange={(e) => {
-                setStatusFilter(e.target.value);
+                setYearFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value));
                 setPage(1);
               }}
             >
-              <option value="">All Status</option>
-              <option value="published">Published</option>
-              <option value="draft">Draft</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
+              <option value={currentYear}>{currentYear} (Current Year)</option>
+              {yearOptions.slice(1).map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+              <option value="all">All Years</option>
             </select>
           </div>
+          <select
+            className="input w-auto"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All Status</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="postponed">Postponed</option>
+          </select>
           <select
             className="input w-auto"
             value={typeFilter}
@@ -132,7 +175,7 @@ export default function Rides() {
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
                     <span>
-                      {format(parseISO(ride.startDate), 'EEEE, MMM d')}
+                      {format(parseISO(ride.startDate), yearFilter === currentYear ? 'EEEE, MMM d' : 'EEEE, MMM d, yyyy')}
                       {ride.startTime && ` at ${ride.startTime}`}
                     </span>
                   </div>

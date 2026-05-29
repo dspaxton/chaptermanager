@@ -7,23 +7,23 @@ import { clsx } from 'clsx';
 
 export default function Members() {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState('active');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['members', search, statusFilter, page],
-    queryFn: () => membersApi.getAll({ search, status: statusFilter || undefined, page, limit: 20 }),
+    queryKey: ['members', search, statusFilter],
+    queryFn: () => membersApi.getAll({ search, status: statusFilter || undefined, limit: 500 }),
   });
 
   const members = data?.data?.data || [];
-  const pagination = data?.data?.pagination;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-display font-bold">Members</h1>
-          <p className="text-hog-black-400 mt-1">Chapter member directory</p>
+          <p className="text-hog-black-400 mt-1">
+            {members.length > 0 ? `${members.length} ${statusFilter || 'total'} members` : 'Chapter member directory'}
+          </p>
         </div>
       </div>
 
@@ -37,10 +37,7 @@ export default function Members() {
               className="input pl-10"
               placeholder="Search members..."
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -48,10 +45,7 @@ export default function Members() {
             <select
               className="input w-auto"
               value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="">All Status</option>
               <option value="active">Active</option>
@@ -126,29 +120,6 @@ export default function Members() {
                 </Link>
               ))}
             </div>
-
-            {/* Pagination */}
-            {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-6">
-                <button
-                  className="btn-secondary"
-                  disabled={page === 1}
-                  onClick={() => setPage(page - 1)}
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-hog-black-400">
-                  Page {page} of {pagination.totalPages}
-                </span>
-                <button
-                  className="btn-secondary"
-                  disabled={page === pagination.totalPages}
-                  onClick={() => setPage(page + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            )}
           </>
         ) : (
           <div className="text-center py-12">

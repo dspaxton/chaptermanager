@@ -1,17 +1,84 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { User, Bike, Calendar, MapPin, Phone, Mail, Award } from 'lucide-react';
+import { User, Bike, Calendar, MapPin, Phone, Mail, Award, Shield, UserCog } from 'lucide-react';
 import { membersApi } from '../lib/api';
+import { useAuthStore } from '../stores/authStore';
 import { clsx } from 'clsx';
+import toast from 'react-hot-toast';
+
+const MEMBER_STATUSES = ['active', 'inactive', 'prospect', 'suspended', 'honorary'] as const;
+
+// Position to role mapping - assigns both position title AND system role
+const OFFICER_POSITIONS = [
+  { position: 'Director', role: 'director', description: 'Chapter leadership with full privileges' },
+  { position: 'Assistant Director', role: 'director', description: 'Chapter leadership with full privileges' },
+  { position: 'Secretary', role: 'secretary', description: 'Manages meetings and minutes' },
+  { position: 'Treasurer', role: 'officer', description: 'Chapter officer privileges' },
+  { position: 'Head Road Captain', role: 'head_road_captain', description: 'Lead road captain, manages all rides' },
+  { position: 'Safety Officer', role: 'officer', description: 'Chapter officer privileges' },
+  { position: 'Activities Officer', role: 'officer', description: 'Chapter officer privileges' },
+  { position: 'Membership Officer', role: 'officer', description: 'Chapter officer privileges' },
+  { position: 'Photographer', role: 'member', description: 'Standard member access' },
+  { position: 'Historian', role: 'member', description: 'Standard member access' },
+  { position: 'Webmaster', role: 'officer', description: 'Chapter officer privileges' },
+  { position: 'Road Captain', role: 'road_captain', description: 'Can manage rides' },
+  { position: 'Member', role: 'member', description: 'Standard member access (removes officer role)' },
+] as const;
 
 export default function MemberProfile() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+
+  const [newStatus, setNewStatus] = useState<string>('');
+  const [newPosition, setNewPosition] = useState<string>('');
+  const [positionStartDate, setPositionStartDate] = useState<string>(
+    format(new Date(), 'yyyy-MM-dd')
+  );
+
+  const isAdmin = user?.role === 'admin' || user?.role === 'director';
 
   const { data, isLoading } = useQuery({
     queryKey: ['member', id],
     queryFn: () => membersApi.getById(id!),
     enabled: !!id,
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (status: string) => membersApi.updateStatus(id!, status),
+    onSuccess: () => {
+      toast.success('Member status updated');
+      queryClient.invalidateQueries({ queryKey: ['member', id] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setNewStatus('');
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to update status');
+    },
+  });
+
+  const positionMutation = useMutation({
+    mutationFn: async () => {
+      const selectedPosition = OFFICER_POSITIONS.find(p => p.position === newPosition);
+      if (!selectedPosition) throw new Error('Invalid position');
+
+      // First assign the position
+      await membersApi.addPosition(id!, newPosition, positionStartDate);
+
+      // Then update the system role to match
+      await membersApi.updateRole(id!, selectedPosition.role);
+    },
+    onSuccess: () => {
+      const selectedPosition = OFFICER_POSITIONS.find(p => p.position === newPosition);
+      toast.success(`Position assigned and role updated to ${selectedPosition?.role}. User will need to log out and back in for role changes to take effect.`);
+      queryClient.invalidateQueries({ queryKey: ['member', id] });
+      setNewPosition('');
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to assign position');
+    },
   });
 
   const member = data?.data?.data;
@@ -212,6 +279,104 @@ export default function MemberProfile() {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Admin Panel - Only visible to admins and directors */}
+      {isAdmin && (
+        <div className="card border-2 border-hog-orange-500/30">
+          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-hog-orange-500" />
+            Admin Controls
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Change Status */}
+            <div className="space-y-3">
+              <h3 className="font-medium flex items-center gap-2">
+                <UserCog className="w-4 h-4" />
+                Change Member Status
+              </h3>
+              <p className="text-sm text-hog-black-400">
+                Current status: <span className="font-medium text-white">{member.status}</span>
+              </p>
+              <div className="flex gap-2">
+                <select
+                  className="input flex-1"
+                  value={newStatus}
+                  onChange={(e) => setNewStatus(e.target.value)}
+                >
+                  <option value="">Select new status...</option>
+                  {MEMBER_STATUSES.filter(s => s !== member.status).map(status => (
+                    <option key={status} value={status}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn-primary"
+                  disabled={!newStatus || statusMutation.isPending}
+                  onClick={() => newStatus && statusMutation.mutate(newStatus)}
+                >
+                  {statusMutation.isPending ? 'Updating...' : 'Update'}
+                </button>
+              </div>
+              <div className="text-xs text-hog-black-500 space-y-1">
+                <p><strong>Active:</strong> Full chapter member with all privileges</p>
+                <p><strong>Prospect:</strong> New member in probationary period</p>
+                <p><strong>Inactive:</strong> Member not currently participating</p>
+                <p><strong>Suspended:</strong> Membership temporarily revoked</p>
+                <p><strong>Honorary:</strong> Special recognition status</p>
+              </div>
+            </div>
+
+            {/* Assign Position & Role */}
+            <div className="space-y-3">
+              <h3 className="font-medium flex items-center gap-2">
+                <Award className="w-4 h-4" />
+                Assign Position & Role
+              </h3>
+              <p className="text-sm text-hog-black-400">
+                Current role: <span className="font-medium text-white">{member.userRole}</span>
+              </p>
+              <select
+                className="input w-full"
+                value={newPosition}
+                onChange={(e) => setNewPosition(e.target.value)}
+              >
+                <option value="">Select position...</option>
+                {OFFICER_POSITIONS.map(pos => (
+                  <option key={pos.position} value={pos.position}>
+                    {pos.position} → {pos.role}
+                  </option>
+                ))}
+              </select>
+              {newPosition && (
+                <p className="text-xs text-hog-orange-400">
+                  {OFFICER_POSITIONS.find(p => p.position === newPosition)?.description}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  className="input flex-1"
+                  value={positionStartDate}
+                  onChange={(e) => setPositionStartDate(e.target.value)}
+                />
+                <button
+                  className="btn-primary"
+                  disabled={!newPosition || positionMutation.isPending}
+                  onClick={() => positionMutation.mutate()}
+                >
+                  {positionMutation.isPending ? 'Assigning...' : 'Assign'}
+                </button>
+              </div>
+              <p className="text-xs text-hog-black-500">
+                Assigns the position and automatically sets the corresponding system role.
+                User will need to log out and back in for role changes to take effect.
+              </p>
+            </div>
           </div>
         </div>
       )}

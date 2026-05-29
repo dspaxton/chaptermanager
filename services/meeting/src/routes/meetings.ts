@@ -412,7 +412,7 @@ router.patch(
 router.post(
   '/:id/attendance',
   authenticate,
-  requireRole('admin', 'director', 'officer'),
+  requireRole('admin', 'director', 'officer', 'head_road_captain', 'secretary'),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;

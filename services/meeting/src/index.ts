@@ -45,8 +45,9 @@ app.get('/api/meetings/health', (req, res) => {
   res.json({ status: 'healthy', service: 'meeting-service' });
 });
 
-app.use('/api/meetings', meetingRouter);
+// Minutes router must come first to handle /all/minutes before /:id catches it
 app.use('/api/meetings', minutesRouter);
+app.use('/api/meetings', meetingRouter);
 
 app.use(errorHandler);
 

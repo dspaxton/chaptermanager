@@ -1,8 +1,9 @@
-import { useParams } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { Bike, Calendar, MapPin, Users, Clock, AlertCircle, CheckCircle } from 'lucide-react';
-import { ridesApi } from '../lib/api';
+import { Bike, Calendar, MapPin, Users, Clock, AlertCircle, CheckCircle, Edit, Send, XCircle, Flag, CalendarClock, Copy, ClipboardCheck, X, Search } from 'lucide-react';
+import { ridesApi, membersApi } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
@@ -11,11 +12,24 @@ export default function RideDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [mileage, setMileage] = useState<string>('');
+  const [memberSearch, setMemberSearch] = useState('');
+
+  const isOfficer = user && ['admin', 'director', 'officer', 'head_road_captain', 'road_captain'].includes(user.role);
 
   const { data, isLoading } = useQuery({
     queryKey: ['ride', id],
     queryFn: () => ridesApi.getById(id!),
     enabled: !!id,
+  });
+
+  const { data: membersData } = useQuery({
+    queryKey: ['members', 'all'],
+    queryFn: () => membersApi.getAll({ limit: 500, status: 'active' }),
+    enabled: showAttendanceModal,
   });
 
   const rsvpMutation = useMutation({
@@ -30,7 +44,94 @@ export default function RideDetail() {
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: (status: string) => ridesApi.updateStatus(id!, status),
+    onSuccess: (_, status) => {
+      queryClient.invalidateQueries({ queryKey: ['ride', id] });
+      queryClient.invalidateQueries({ queryKey: ['rides'] });
+      const messages: Record<string, string> = {
+        published: 'Ride published! Members can now see it.',
+        cancelled: 'Ride cancelled.',
+        completed: 'Ride marked as completed.',
+        draft: 'Ride moved back to draft.',
+        postponed: 'Ride marked as postponed.',
+      };
+      toast.success(messages[status] || 'Status updated!');
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to update status');
+    },
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: () => ridesApi.duplicate(id!),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['rides'] });
+      toast.success('Ride duplicated! Opening copy for editing...');
+      navigate(`/rides/${response.data.data.id}/edit`);
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to duplicate ride');
+    },
+  });
+
+  const attendanceMutation = useMutation({
+    mutationFn: ({ memberIds, mileage }: { memberIds: string[]; mileage?: number }) =>
+      ridesApi.recordAttendance(id!, memberIds, mileage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ride', id] });
+      toast.success('Attendance recorded successfully!');
+      setShowAttendanceModal(false);
+      setSelectedMembers([]);
+      setMileage('');
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to record attendance');
+    },
+  });
+
   const ride = data?.data?.data;
+  const allMembers = membersData?.data?.data || [];
+
+  const filteredMembers = useMemo(() => {
+    if (!memberSearch.trim()) return allMembers;
+    const search = memberSearch.toLowerCase();
+    return allMembers.filter((member: { firstName: string; lastName: string; nickname?: string }) =>
+      member.firstName.toLowerCase().includes(search) ||
+      member.lastName.toLowerCase().includes(search) ||
+      (member.nickname && member.nickname.toLowerCase().includes(search))
+    );
+  }, [allMembers, memberSearch]);
+
+  const openAttendanceModal = () => {
+    // Pre-select members who already attended
+    const alreadyAttended = ride?.participants
+      ?.filter((p: { attended: boolean }) => p.attended)
+      ?.map((p: { memberId: string }) => p.memberId) || [];
+    setSelectedMembers(alreadyAttended);
+    setMileage(ride?.actualDistance?.toString() || ride?.estimatedDistance?.toString() || '');
+    setMemberSearch('');
+    setShowAttendanceModal(true);
+  };
+
+  const toggleMember = (memberId: string) => {
+    setSelectedMembers(prev =>
+      prev.includes(memberId)
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  const handleRecordAttendance = () => {
+    if (selectedMembers.length === 0) {
+      toast.error('Please select at least one member');
+      return;
+    }
+    attendanceMutation.mutate({
+      memberIds: selectedMembers,
+      mileage: mileage ? parseFloat(mileage) : undefined,
+    });
+  };
 
   if (isLoading) {
     return (
@@ -55,6 +156,7 @@ export default function RideDetail() {
       case 'draft': return 'badge-gray';
       case 'completed': return 'badge-blue';
       case 'cancelled': return 'bg-red-500/20 text-red-400';
+      case 'postponed': return 'bg-yellow-500/20 text-yellow-400';
       default: return 'badge-gray';
     }
   };
@@ -71,10 +173,120 @@ export default function RideDetail() {
             <span className="badge-orange">{ride.rideType.replace('_', ' ')}</span>
             {ride.rsvpRequired && <span className="badge-blue">RSVP Required</span>}
           </div>
+          {isOfficer && (
+            <button
+              onClick={() => navigate(`/rides/${id}/edit`)}
+              className="btn-ghost p-2"
+              title="Edit Ride"
+            >
+              <Edit className="w-5 h-5" />
+            </button>
+          )}
         </div>
         <h1 className="text-2xl font-display font-bold mb-2">{ride.title}</h1>
         {ride.description && (
           <p className="text-hog-black-300">{ride.description}</p>
+        )}
+
+        {/* Admin Controls */}
+        {isOfficer && (
+          <div className="mt-6 pt-4 border-t border-hog-black-700">
+            <h3 className="text-sm font-medium text-hog-black-400 mb-3">Ride Management</h3>
+            <div className="flex flex-wrap gap-2">
+              {ride.status === 'draft' && (
+                <button
+                  onClick={() => statusMutation.mutate('published')}
+                  disabled={statusMutation.isPending}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Publish Ride
+                </button>
+              )}
+              {ride.status === 'published' && (
+                <>
+                  <button
+                    onClick={openAttendanceModal}
+                    className="btn-primary flex items-center gap-2"
+                  >
+                    <ClipboardCheck className="w-4 h-4" />
+                    Record Attendance
+                  </button>
+                  <button
+                    onClick={() => statusMutation.mutate('completed')}
+                    disabled={statusMutation.isPending}
+                    className="btn-secondary flex items-center gap-2"
+                  >
+                    <Flag className="w-4 h-4" />
+                    Mark Completed
+                  </button>
+                  <button
+                    onClick={() => statusMutation.mutate('draft')}
+                    disabled={statusMutation.isPending}
+                    className="btn-ghost flex items-center gap-2"
+                  >
+                    <Edit className="w-4 h-4" />
+                    Unpublish
+                  </button>
+                </>
+              )}
+              {ride.status === 'completed' && (
+                <button
+                  onClick={openAttendanceModal}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  Update Attendance
+                </button>
+              )}
+              {ride.status === 'published' && (
+                <button
+                  onClick={() => {
+                    if (confirm('Mark this ride as postponed?')) {
+                      statusMutation.mutate('postponed');
+                    }
+                  }}
+                  disabled={statusMutation.isPending}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <CalendarClock className="w-4 h-4" />
+                  Postpone
+                </button>
+              )}
+              {/* Duplicate button - available for any ride */}
+              <button
+                onClick={() => duplicateMutation.mutate()}
+                disabled={duplicateMutation.isPending}
+                className="btn-ghost flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4" />
+                {duplicateMutation.isPending ? 'Duplicating...' : 'Duplicate'}
+              </button>
+              {ride.status !== 'cancelled' && ride.status !== 'completed' && ride.status !== 'postponed' && (
+                <button
+                  onClick={() => {
+                    if (confirm('Are you sure you want to cancel this ride?')) {
+                      statusMutation.mutate('cancelled');
+                    }
+                  }}
+                  disabled={statusMutation.isPending}
+                  className="btn-ghost text-red-400 hover:text-red-300 flex items-center gap-2"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Cancel Ride
+                </button>
+              )}
+              {ride.status === 'cancelled' && (
+                <button
+                  onClick={() => statusMutation.mutate('draft')}
+                  disabled={statusMutation.isPending}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  Restore to Draft
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -299,6 +511,114 @@ export default function RideDetail() {
           )}
         </div>
       </div>
+
+      {/* Attendance Modal */}
+      {showAttendanceModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-hog-black-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-hog-black-700">
+              <h2 className="text-lg font-display font-semibold">Record Attendance</h2>
+              <button
+                onClick={() => setShowAttendanceModal(false)}
+                className="btn-ghost p-2"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+              {/* Mileage Input */}
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Ride Mileage (optional)
+                </label>
+                <input
+                  type="number"
+                  className="input w-full"
+                  placeholder="Enter actual miles ridden"
+                  value={mileage}
+                  onChange={(e) => setMileage(e.target.value)}
+                />
+                <p className="text-xs text-hog-black-400 mt-1">
+                  This will be logged to each attendee's mileage record
+                </p>
+              </div>
+
+              {/* Member Selection */}
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Select Attendees ({selectedMembers.length} selected)
+                </label>
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-hog-black-400" />
+                  <input
+                    type="text"
+                    className="input pl-10 w-full"
+                    placeholder="Search members..."
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {filteredMembers.map((member: {
+                    id: string;
+                    firstName: string;
+                    lastName: string;
+                    nickname?: string;
+                  }) => (
+                    <label
+                      key={member.id}
+                      className={clsx(
+                        'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors',
+                        selectedMembers.includes(member.id)
+                          ? 'bg-hog-orange-500/20 border border-hog-orange-500'
+                          : 'bg-hog-black-800 hover:bg-hog-black-700'
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedMembers.includes(member.id)}
+                        onChange={() => toggleMember(member.id)}
+                        className="w-4 h-4 rounded border-hog-black-600 text-hog-orange-500 focus:ring-hog-orange-500"
+                      />
+                      <div className="w-8 h-8 rounded-full bg-hog-orange-500 flex items-center justify-center text-white text-sm flex-shrink-0">
+                        {member.firstName[0]}
+                      </div>
+                      <span className="text-sm truncate">
+                        {member.firstName} {member.lastName}
+                        {member.nickname && ` (${member.nickname})`}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {allMembers.length === 0 && (
+                  <p className="text-hog-black-400 text-center py-4">Loading members...</p>
+                )}
+                {allMembers.length > 0 && filteredMembers.length === 0 && (
+                  <p className="text-hog-black-400 text-center py-4">No members match "{memberSearch}"</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-4 border-t border-hog-black-700">
+              <button
+                onClick={() => setShowAttendanceModal(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRecordAttendance}
+                disabled={attendanceMutation.isPending || selectedMembers.length === 0}
+                className="btn-primary"
+              >
+                {attendanceMutation.isPending ? 'Saving...' : `Record ${selectedMembers.length} Attendees`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
