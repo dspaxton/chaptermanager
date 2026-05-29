@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { ArrowLeft, Bike } from 'lucide-react';
+import { ArrowLeft, Bike, Sparkles } from 'lucide-react';
 import { ridesApi } from '../lib/api';
 import toast from 'react-hot-toast';
 
@@ -30,6 +30,8 @@ interface RideFormData {
 
 export default function RideCreate() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const prefill = (location.state as { prefill?: Partial<RideFormData> } | null)?.prefill;
   const [showRsvpOptions, setShowRsvpOptions] = useState(false);
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<RideFormData>({
@@ -37,6 +39,7 @@ export default function RideCreate() {
       rideType: 'chapter_ride',
       difficultyLevel: 2,
       rsvpRequired: false,
+      ...prefill,
     },
   });
 
@@ -86,6 +89,15 @@ export default function RideCreate() {
           <p className="text-hog-black-400 mt-1">Plan a chapter ride or event</p>
         </div>
       </div>
+
+      {prefill && (
+        <div className="bg-hog-orange-500/10 border border-hog-orange-500/30 rounded-lg p-4 flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-hog-orange-400" />
+          <p className="text-sm text-hog-orange-400">
+            Prefilled from an AI suggestion. Review and edit the details before creating.
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Basic Info */}
