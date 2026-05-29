@@ -91,7 +91,7 @@ export default function RideDetail() {
   });
 
   const ride = data?.data?.data;
-  const allMembers = membersData?.data?.data || [];
+  const allMembers = useMemo(() => membersData?.data?.data || [], [membersData]);
 
   const filteredMembers = useMemo(() => {
     if (!memberSearch.trim()) return allMembers;

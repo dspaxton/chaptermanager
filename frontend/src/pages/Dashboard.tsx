@@ -111,9 +111,9 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          {upcomingRides?.data?.data?.length > 0 ? (
+          {(upcomingRides?.data?.data?.length ?? 0) > 0 ? (
             <div className="space-y-3">
-              {upcomingRides.data.data.map((ride: {
+              {upcomingRides?.data?.data?.map((ride: {
                 id: string;
                 title: string;
                 startDate: string;
@@ -182,9 +182,9 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          {upcomingMeetings?.data?.data?.length > 0 ? (
+          {(upcomingMeetings?.data?.data?.length ?? 0) > 0 ? (
             <div className="space-y-3">
-              {upcomingMeetings.data.data.map((meeting: {
+              {upcomingMeetings?.data?.data?.map((meeting: {
                 id: string;
                 title: string;
                 meetingType: string;
