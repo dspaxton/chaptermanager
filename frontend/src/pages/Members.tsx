@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Search, Users, Filter } from 'lucide-react';
+import { Search, Users, Filter, Sparkles } from 'lucide-react';
 import { membersApi } from '../lib/api';
 import { clsx } from 'clsx';
+import { useAuthStore } from '../stores/authStore';
+import EngagementInsights from '../components/EngagementInsights';
 
 export default function Members() {
+  const { user } = useAuthStore();
+  const canViewInsights = ['admin', 'director', 'officer'].includes(user?.role || '');
+  const [tab, setTab] = useState<'directory' | 'insights'>('directory');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
 
@@ -22,11 +27,48 @@ export default function Members() {
         <div>
           <h1 className="text-2xl font-display font-bold">Members</h1>
           <p className="text-hog-black-400 mt-1">
-            {members.length > 0 ? `${members.length} ${statusFilter || 'total'} members` : 'Chapter member directory'}
+            {tab === 'insights'
+              ? 'AI engagement insights'
+              : members.length > 0
+                ? `${members.length} ${statusFilter || 'total'} members`
+                : 'Chapter member directory'}
           </p>
         </div>
       </div>
 
+      {canViewInsights && (
+        <div className="flex gap-2 border-b border-hog-black-800">
+          <button
+            onClick={() => setTab('directory')}
+            className={clsx(
+              'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+              tab === 'directory'
+                ? 'border-hog-orange-500 text-hog-orange-500'
+                : 'border-transparent text-hog-black-400 hover:text-hog-black-200'
+            )}
+          >
+            <Users className="w-4 h-4 mr-2 inline" />
+            Directory
+          </button>
+          <button
+            onClick={() => setTab('insights')}
+            className={clsx(
+              'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+              tab === 'insights'
+                ? 'border-hog-orange-500 text-hog-orange-500'
+                : 'border-transparent text-hog-black-400 hover:text-hog-black-200'
+            )}
+          >
+            <Sparkles className="w-4 h-4 mr-2 inline" />
+            Insights
+          </button>
+        </div>
+      )}
+
+      {tab === 'insights' && canViewInsights && <EngagementInsights />}
+
+      {tab === 'directory' && (
+      <>
       {/* Filters */}
       <div className="card">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -128,6 +170,8 @@ export default function Members() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
